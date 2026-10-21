@@ -48,6 +48,26 @@ jobs:
         working-directory: apps/${{ inputs.app }}
         run: python -m unittest -v
 
+      - name: Check GitHub environment configuration
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+          DEPLOYER_SA: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          missing=0
+          for pair in "secret GCP_WIF_PROVIDER:${WIF_PROVIDER}" "secret GCP_SERVICE_ACCOUNT:${DEPLOYER_SA}" \
+                      "variable GCP_PROJECT_ID:${PROJECT_ID}" "variable IMAGE_PATH:${IMAGE_PATH}" \
+                      "variable CLUSTER_NAME:${CLUSTER_NAME}" "variable CLUSTER_LOCATION:${CLUSTER_LOCATION}"; do
+            kind="${pair%% *}"; rest="${pair#* }"; name="${rest%%:*}"; value="${rest#*:}"
+            if [ -z "${value}" ]; then
+              echo "::error::Missing ${kind} ${name} on the GitHub environment '${ENVIRONMENT}' (Settings > Environments > ${ENVIRONMENT})."
+              missing=1
+            fi
+          done
+          if [ "${missing}" = 1 ]; then
+            echo "::error::The values come from 'terraform output' in envs/${ENVIRONMENT}. If github_wif_provider is null, set github_repository in envs/${ENVIRONMENT}/terraform.tfvars and run terraform apply first."
+            exit 1
+          fi
+
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}

@@ -5,4 +5,4 @@ authorized_networks = []
 
 # Repository whose GitHub Actions may deploy to this environment (owner/repo). Leave empty to skip.
 # The job must run in a GitHub environment named "dev".
-github_repository = ""
+github_repository = "sspatil05/agent-deployment-cloud"
