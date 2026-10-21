@@ -1,0 +1,7 @@
+# stage: production-like
+environment: stage
+replicaCount: 2
+spreadAcrossNodes: true
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

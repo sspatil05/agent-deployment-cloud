@@ -1,0 +1,39 @@
+# Defaults for every app. Overridden by deploy/env/<env>.yaml (environment) and apps/<app>/values.yaml (app).
+
+appName: "" # required, e.g. app1
+environment: dev # shown by the app, set per environment
+
+replicaCount: 1
+
+image:
+  repository: "" # required, set by the pipeline
+  tag: "" # required, set by the pipeline (git short SHA)
+  pullPolicy: IfNotPresent
+
+containerPort: 8080
+
+service:
+  type: LoadBalancer # one Google load balancer per app; use ClusterIP and an Ingress to share one
+  port: 80
+  internal: false # true = private (internal) load balancer, reachable only inside the VPC
+
+probes:
+  path: /healthz
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
+
+# Keep at least one pod during node upgrades and drains. Only meaningful with 2+ replicas.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Prefer scheduling replicas on different nodes.
+spreadAcrossNodes: false
+
+env: {} # extra environment variables for the container

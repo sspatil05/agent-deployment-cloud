@@ -1,0 +1,54 @@
+# Checks on every pull request. Nothing here touches Google Cloud.
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  apps:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [app1, app2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests
+        working-directory: apps/${{ matrix.app }}
+        run: python -m unittest -v
+      - name: Docker build (not pushed)
+        run: docker build -t ${{ matrix.app }}:ci apps/${{ matrix.app }}
+
+  helm:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [app1, app2]
+        env: [dev, stage, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint and render
+        run: |
+          ARGS="-f deploy/env/${{ matrix.env }}.yaml -f apps/${{ matrix.app }}/values.yaml --set image.repository=example/${{ matrix.app }} --set image.tag=ci"
+          helm lint charts/hello-app $ARGS
+          helm template ${{ matrix.app }} charts/hello-app $ARGS > /dev/null
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Format check
+        run: terraform fmt -check -recursive
+      - name: Validate each environment
+        run: |
+          for env in dev stage prod; do
+            terraform -chdir=envs/$env init -backend=false -input=false
+            terraform -chdir=envs/$env validate
+          done

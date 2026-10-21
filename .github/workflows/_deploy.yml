@@ -1,0 +1,114 @@
+# Reusable workflow: test an app, build and push its image, then deploy it to one environment with Helm.
+# The calling job picks the environment (dev, stage or prod). GitHub applies that environment's secrets, variables
+# and approval rules (for example required reviewers on prod), and Google only trusts the token for that environment.
+name: deploy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: App folder under apps/ (app1 or app2)
+        required: true
+        type: string
+      environment:
+        description: GitHub environment and target (dev, stage or prod)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # keyless login to Google Cloud
+
+concurrency:
+  group: deploy-${{ inputs.app }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      APP: ${{ inputs.app }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      # Set these on the GitHub environment (Settings > Environments). Values come from `terraform output`.
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      IMAGE_PATH: ${{ vars.IMAGE_PATH }}
+      CLUSTER_NAME: ${{ vars.CLUSTER_NAME }}
+      CLUSTER_LOCATION: ${{ vars.CLUSTER_LOCATION }}
+      NAMESPACE: apps
+      CHART: charts/hello-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests
+        working-directory: apps/${{ inputs.app }}
+        run: python -m unittest -v
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: gke-gcloud-auth-plugin
+
+      - name: Build and push image
+        run: |
+          gcloud auth configure-docker "${IMAGE_PATH%%/*}" --quiet
+          IMAGE_REPO="${IMAGE_PATH}/${APP}"
+          IMAGE_TAG="${GITHUB_SHA::7}"
+          echo "IMAGE_REPO=${IMAGE_REPO}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> "$GITHUB_ENV"
+          # Stage and prod use immutable tags, so never rebuild a tag that already exists (re-runs, promotions).
+          if gcloud artifacts docker images describe "${IMAGE_REPO}:${IMAGE_TAG}" >/dev/null 2>&1; then
+            echo "Image ${IMAGE_REPO}:${IMAGE_TAG} already exists, skipping build."
+          else
+            docker build -t "${IMAGE_REPO}:${IMAGE_TAG}" "apps/${APP}"
+            docker push "${IMAGE_REPO}:${IMAGE_TAG}"
+          fi
+
+      - name: Connect to the cluster
+        run: |
+          export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+          # Preferred: Connect gateway (works even when the Kubernetes API is restricted to private CIDRs).
+          # Fallback: direct access, which works when the API is open to this runner (typically dev).
+          gcloud container fleet memberships get-credentials "${CLUSTER_NAME}" --project "${PROJECT_ID}" \
+            || gcloud container clusters get-credentials "${CLUSTER_NAME}" --location "${CLUSTER_LOCATION}" --project "${PROJECT_ID}"
+          kubectl cluster-info
+
+      - uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: |
+          helm lint "${CHART}" -f "deploy/env/${ENVIRONMENT}.yaml" -f "apps/${APP}/values.yaml" \
+            --set image.repository="${IMAGE_REPO}" --set image.tag="${IMAGE_TAG}"
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install "${APP}" "${CHART}" \
+            --namespace "${NAMESPACE}" --create-namespace \
+            -f "deploy/env/${ENVIRONMENT}.yaml" \
+            -f "apps/${APP}/values.yaml" \
+            --set image.repository="${IMAGE_REPO}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --atomic --wait --timeout 5m
+
+      - name: Show where it is running
+        run: |
+          kubectl -n "${NAMESPACE}" get deploy,svc "${APP}"
+          for i in $(seq 1 18); do
+            IP=$(kubectl -n "${NAMESPACE}" get svc "${APP}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            [ -n "${IP}" ] && break
+            sleep 10
+          done
+          if [ -n "${IP}" ]; then ADDRESS="http://${IP}/"; else ADDRESS="not assigned yet, check: kubectl -n ${NAMESPACE} get svc ${APP}"; fi
+          {
+            echo "### ${APP} -> ${ENVIRONMENT}"
+            echo "- image: \`${IMAGE_REPO}:${IMAGE_TAG}\`"
+            echo "- address: ${ADDRESS}"
+          } >> "$GITHUB_STEP_SUMMARY"

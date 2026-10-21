@@ -1,0 +1,31 @@
+name: app2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/app2/**"
+      - "charts/hello-app/**"
+      - "deploy/env/**"
+      - ".github/workflows/_deploy.yml"
+      - ".github/workflows/app2.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy
+        type: choice
+        options: [dev, stage, prod]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    # A push to main deploys to dev. Run the workflow manually to promote to stage or prod.
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      app: app2
+      environment: ${{ inputs.environment || 'dev' }}
+    secrets: inherit

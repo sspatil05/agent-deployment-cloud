@@ -1,0 +1,6 @@
+apiVersion: v2
+name: hello-app
+description: Generic web service chart used for every hello-world app (app1, app2)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

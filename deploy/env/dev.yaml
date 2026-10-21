@@ -1,0 +1,3 @@
+# dev: smallest footprint
+environment: dev
+replicaCount: 1
