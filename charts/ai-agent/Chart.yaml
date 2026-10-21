@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ai-agent
+description: Runs one agent built on agent-core (FastAPI service with /run, /healthz, /readyz, /metrics)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -39,6 +39,37 @@ jobs:
           helm lint charts/hello-app $ARGS
           helm template ${{ matrix.app }} charts/hello-app $ARGS > /dev/null
 
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Tests
+        run: |
+          pip install --quiet ./agents/agent-core[anthropic] pytest
+          pip install --quiet --no-deps ./agents/agent-starter
+          (cd agents/agent-core && python -m pytest -q)
+          (cd agents/agent-starter && python -m pytest -q tests)
+      - name: Docker build (not pushed)
+        run: docker build -f agents/Dockerfile -t agent-starter:ci agents
+
+  agent-chart:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [dev, stage, prod]
+        llm: ["false", "true"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint and render
+        run: |
+          ARGS="-f deploy/agents/${{ matrix.env }}.yaml --set image.repository=example/agent-starter --set image.tag=ci --set llm.enabled=${{ matrix.llm }}"
+          helm lint charts/ai-agent $ARGS
+          helm template agent-starter charts/ai-agent $ARGS > /dev/null
+
   terraform:
     runs-on: ubuntu-latest
     steps:

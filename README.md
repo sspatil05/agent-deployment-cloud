@@ -14,6 +14,8 @@ modules/
   github-actions/  deployer identity + keyless GitHub login (Workload Identity Federation), one per environment
   platform/   composes the modules above and enables the needed Google APIs
 apps/         the two hello-world apps (app1, app2): code, tests, Dockerfile, per-app Helm values
+agents/       the AI agent: agent-core (library) + agent-starter (the agent) and the Dockerfile that builds them
+charts/ai-agent/  Helm chart for the agent (deploy/agents/<env>.yaml holds per-environment values)
 charts/hello-app/  one Helm chart shared by every app
 deploy/env/   per-environment Helm settings (dev.yaml, stage.yaml, prod.yaml)
 .github/workflows/  CI checks and the deploy pipelines
@@ -109,6 +111,33 @@ registry. Each deployed app is its own Helm release in the `apps` namespace and 
 
 Order of work for a first deployment: apply `envs/<env>` with `github_repository` set, add the GitHub environment
 secrets and variables above, push this repository to GitHub, then run the **app1** and **app2** workflows.
+## The AI agent
+
+`agents/` holds the two attached projects, unchanged:
+
+- `agents/agent-core` is the framework library (FastAPI service, Claude tool-use loop). It is not deployed on its own.
+- `agents/agent-starter` is the agent that runs: a prompt, a markdown skill and one `echo` tool. Edit its `src/agent/prompts`,
+  `skills` and `tools` to give it a real job.
+
+`agents/Dockerfile` builds **one image** from both and installs `agent-core` from the local copy, so the build never
+downloads code from another GitHub repository. `charts/ai-agent` deploys it; `deploy/agents/<env>.yaml` holds the
+per-environment settings; the workflow is `agent-starter.yml` (calls `_deploy-agent.yml`). A push to `main` that touches
+`agents/`, the chart or `deploy/agents` deploys to **dev**; run the workflow manually to promote to stage or prod.
+
+The agent lands in the `agents` namespace as Helm release `agent-starter`, behind a `ClusterIP` Service. It is **not
+public on purpose**: `/run` has no authentication and every call can spend LLM money. Reach it with:
+
+```
+kubectl -n agents port-forward svc/agent-starter 8080:80
+# then http://localhost:8080/ (test console), /docs (Swagger), /healthz, /metrics
+```
+
+**Giving it a brain.** Add the GitHub environment **secret** `ANTHROPIC_API_KEY`. The pipeline turns it into the
+Kubernetes secret `agent-secrets` and enables the model (default `claude-sonnet-5-5`; override with the optional environment
+**variable** `AGENT_MODEL`). Without the secret the agent still deploys and runs with the no-op brain, which is a free way to
+confirm the pipeline works. The key lives only in GitHub and in the cluster, never in Terraform or git.
+
+It uses the same GitHub environment secrets and variables as the apps, so no new infrastructure is needed.
 ## Next steps once a cluster exists
 
 ```

@@ -1,0 +1,4 @@
+# dev: smallest footprint, verbose logs
+environment: dev
+replicaCount: 1
+logLevel: DEBUG

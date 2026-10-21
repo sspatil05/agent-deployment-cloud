@@ -1,0 +1,24 @@
+# Per-agent Helm values. The chart itself is frozen.
+image:
+  repository: my-agent
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+service:
+  port: 8080
+
+# Plain env injected into the pod. pydantic reads every AGENT_* automatically.
+env:
+  AGENT_NAME: my-agent
+  AGENT_LOG_LEVEL: INFO
+  # AGENT_MODEL: claude-opus-5        # give the agent an LLM brain
+
+# Secrets from a k8s Secret you create separately (never committed). The LLM
+# brain needs ANTHROPIC_API_KEY:
+# secretEnv:
+#   ANTHROPIC_API_KEY: {name: my-agent-secrets, key: anthropic-key}
+secretEnv: {}
+
+resources: {}

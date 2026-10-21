@@ -1,0 +1,15 @@
+# prod: redundant, survives a node drain
+environment: prod
+replicaCount: 2
+logLevel: INFO
+spreadAcrossNodes: true
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi

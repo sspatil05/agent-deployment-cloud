@@ -1,0 +1,140 @@
+# Reusable workflow: test the agent, build and push its image, create its API-key secret, deploy with Helm.
+# The calling job picks the environment (dev, stage or prod); GitHub applies that environment's secrets, variables
+# and approval rules, and Google only trusts the token for that environment.
+name: deploy-agent (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment and target (dev, stage or prod)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # keyless login to Google Cloud
+
+concurrency:
+  group: deploy-agent-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      AGENT: agent-starter
+      ENVIRONMENT: ${{ inputs.environment }}
+      # Set on the GitHub environment (Settings > Environments). Values come from `terraform output`.
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      IMAGE_PATH: ${{ vars.IMAGE_PATH }}
+      CLUSTER_NAME: ${{ vars.CLUSTER_NAME }}
+      CLUSTER_LOCATION: ${{ vars.CLUSTER_LOCATION }}
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }} # optional, overrides the model in charts/ai-agent/values.yaml
+      NAMESPACE: agents
+      CHART: charts/ai-agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Tests
+        run: |
+          pip install --quiet ./agents/agent-core[anthropic] pytest
+          pip install --quiet --no-deps ./agents/agent-starter
+          (cd agents/agent-core && python -m pytest -q)
+          (cd agents/agent-starter && python -m pytest -q tests)
+
+      - name: Check GitHub environment configuration
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+          DEPLOYER_SA: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          missing=0
+          for pair in "secret GCP_WIF_PROVIDER:${WIF_PROVIDER}" "secret GCP_SERVICE_ACCOUNT:${DEPLOYER_SA}" \
+                      "variable GCP_PROJECT_ID:${PROJECT_ID}" "variable IMAGE_PATH:${IMAGE_PATH}" \
+                      "variable CLUSTER_NAME:${CLUSTER_NAME}" "variable CLUSTER_LOCATION:${CLUSTER_LOCATION}"; do
+            kind="${pair%% *}"; rest="${pair#* }"; name="${rest%%:*}"; value="${rest#*:}"
+            if [ -z "${value}" ]; then
+              echo "::error::Missing ${kind} ${name} on the GitHub environment '${ENVIRONMENT}' (Settings > Environments > ${ENVIRONMENT})."
+              missing=1
+            fi
+          done
+          [ "${missing}" = 0 ] || exit 1
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: gke-gcloud-auth-plugin
+
+      - name: Build and push image
+        run: |
+          gcloud auth configure-docker "${IMAGE_PATH%%/*}" --quiet
+          IMAGE_REPO="${IMAGE_PATH}/${AGENT}"
+          IMAGE_TAG="${GITHUB_SHA::7}"
+          echo "IMAGE_REPO=${IMAGE_REPO}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> "$GITHUB_ENV"
+          # Stage and prod use immutable tags, so never rebuild a tag that already exists.
+          if gcloud artifacts docker images describe "${IMAGE_REPO}:${IMAGE_TAG}" >/dev/null 2>&1; then
+            echo "Image ${IMAGE_REPO}:${IMAGE_TAG} already exists, skipping build."
+          else
+            docker build -f agents/Dockerfile -t "${IMAGE_REPO}:${IMAGE_TAG}" agents
+            docker push "${IMAGE_REPO}:${IMAGE_TAG}"
+          fi
+
+      - name: Connect to the cluster
+        run: |
+          export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+          # Preferred: Connect gateway (works when the Kubernetes API is restricted to private CIDRs).
+          # Fallback: direct access, which works when the API is open to this runner (typically dev).
+          gcloud container fleet memberships get-credentials "${CLUSTER_NAME}" --project "${PROJECT_ID}" \
+            || gcloud container clusters get-credentials "${CLUSTER_NAME}" --location "${CLUSTER_LOCATION}" --project "${PROJECT_ID}"
+          kubectl cluster-info
+
+      - name: Create the API key secret (optional)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${ANTHROPIC_API_KEY}" ]; then
+            kubectl -n "${NAMESPACE}" create secret generic agent-secrets \
+              --from-literal=anthropic-key="${ANTHROPIC_API_KEY}" --dry-run=client -o yaml | kubectl apply -f -
+            echo "LLM_ARGS=--set llm.enabled=true${AGENT_MODEL:+ --set llm.model=${AGENT_MODEL}}" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No ANTHROPIC_API_KEY secret on environment '${ENVIRONMENT}': deploying with the no-op brain."
+            echo "LLM_ARGS=" >> "$GITHUB_ENV"
+          fi
+
+      - uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: |
+          helm lint "${CHART}" -f "deploy/agents/${ENVIRONMENT}.yaml" \
+            --set image.repository="${IMAGE_REPO}" --set image.tag="${IMAGE_TAG}" ${LLM_ARGS}
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install "${AGENT}" "${CHART}" \
+            --namespace "${NAMESPACE}" \
+            -f "deploy/agents/${ENVIRONMENT}.yaml" \
+            --set image.repository="${IMAGE_REPO}" \
+            --set image.tag="${IMAGE_TAG}" \
+            ${LLM_ARGS} \
+            --atomic --wait --timeout 5m
+
+      - name: Summary
+        run: |
+          kubectl -n "${NAMESPACE}" get deploy,svc,pods -l app.kubernetes.io/name="${AGENT}"
+          {
+            echo "### ${AGENT} -> ${ENVIRONMENT}"
+            echo "- image: \`${IMAGE_REPO}:${IMAGE_TAG}\`"
+            echo "- brain: $([ -n "${LLM_ARGS}" ] && echo "Claude enabled" || echo "no-op (no ANTHROPIC_API_KEY)")"
+            echo "- reach it: \`kubectl -n ${NAMESPACE} port-forward svc/${AGENT} 8080:80\` then open http://localhost:8080/"
+          } >> "$GITHUB_STEP_SUMMARY"

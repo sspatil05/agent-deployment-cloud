@@ -1,0 +1,30 @@
+name: agent-starter
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agents/**"
+      - "charts/ai-agent/**"
+      - "deploy/agents/**"
+      - ".github/workflows/_deploy-agent.yml"
+      - ".github/workflows/agent-starter.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy
+        type: choice
+        options: [dev, stage, prod]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    # A push to main deploys to dev. Run the workflow manually to promote to stage or prod.
+    uses: ./.github/workflows/_deploy-agent.yml
+    with:
+      environment: ${{ inputs.environment || 'dev' }}
+    secrets: inherit

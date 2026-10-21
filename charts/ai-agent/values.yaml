@@ -1,0 +1,45 @@
+# Defaults for every agent. Overridden by deploy/agents/<env>.yaml; the pipeline sets image.repository and image.tag.
+
+agentName: agent-starter # Kubernetes resource name and the agent's own name (AGENT_NAME)
+environment: dev
+
+replicaCount: 1
+
+image:
+  repository: "" # required, set by the pipeline
+  tag: "" # required, set by the pipeline (git short SHA)
+  pullPolicy: IfNotPresent
+
+containerPort: 8080
+
+# The agent API has no authentication and can spend money on LLM calls, so it is NOT exposed publicly by default.
+# Reach it with `kubectl port-forward`, from other pods, or put it behind an authenticating proxy before exposing it.
+service:
+  type: ClusterIP
+  port: 80
+  internal: false # with type LoadBalancer: true = private load balancer reachable only inside the VPC
+
+logLevel: INFO
+
+# The LLM "brain". When disabled the agent still starts, using the no-op brain (no cost, does nothing useful).
+llm:
+  enabled: false
+  model: claude-sonnet-5-5 # AGENT_MODEL
+  secretName: agent-secrets # Kubernetes Secret created by the pipeline from the GitHub secret ANTHROPIC_API_KEY
+  secretKey: anthropic-key
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+spreadAcrossNodes: false
+
+env: {} # extra non-secret environment variables, e.g. AGENT_JIRA__BASE_URL
