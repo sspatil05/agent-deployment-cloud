@@ -32,6 +32,9 @@ jobs:
       CLUSTER_NAME: ${{ vars.CLUSTER_NAME }}
       CLUSTER_LOCATION: ${{ vars.CLUSTER_LOCATION }}
       AGENT_MODEL: ${{ vars.AGENT_MODEL }} # optional: model id (openai/gpt-4o-mini via OpenRouter, or claude-* via Anthropic)
+      # Optional: comma-separated CIDRs (e.g. 203.0.113.7/32) that may reach the agent through a public load balancer.
+      # Empty = the agent stays private (ClusterIP).
+      ALLOWED_CIDRS: ${{ vars.AGENT_ALLOWED_CIDRS }}
       NAMESPACE: agents
       CHART: charts/ai-agent
     steps:
@@ -119,12 +122,34 @@ jobs:
             --from-literal=api-key="${KEY}" --dry-run=client -o yaml | kubectl apply -f -
           echo "LLM_ARGS=--set llm.enabled=true --set llm.provider=${PROVIDER} --set llm.apiKeyEnvName=${KEY_ENV} --set llm.model=${MODEL}" >> "$GITHUB_ENV"
           echo "LLM_DESC=${PROVIDER}: ${MODEL}" >> "$GITHUB_ENV"
+      - name: Decide how to expose the agent
+        run: |
+          if [ -z "${ALLOWED_CIDRS//[[:space:]]/}" ]; then
+            echo "EXPOSE_FILE=" >> "$GITHUB_ENV"
+            echo "EXPOSED=false" >> "$GITHUB_ENV"
+            echo "::notice::AGENT_ALLOWED_CIDRS is empty: the agent stays private (ClusterIP)."
+            exit 0
+          fi
+          FILE="${RUNNER_TEMP}/exposure.yaml"
+          { echo "service:"; echo "  type: LoadBalancer"; echo "  loadBalancerSourceRanges:"; } > "${FILE}"
+          for cidr in $(echo "${ALLOWED_CIDRS}" | tr ',' ' '); do
+            case "${cidr}" in
+              0.0.0.0/0|::/0) echo "::error::Refusing to open the agent to the whole internet (${cidr})."; exit 1 ;;
+            esac
+            if ! echo "${cidr}" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$'; then
+              echo "::error::AGENT_ALLOWED_CIDRS entry '${cidr}' is not an IPv4 address or CIDR."; exit 1
+            fi
+            case "${cidr}" in */*) ;; *) cidr="${cidr}/32" ;; esac
+            echo "    - \"${cidr}\"" >> "${FILE}"
+          done
+          echo "EXPOSE_FILE=-f ${FILE}" >> "$GITHUB_ENV"
+          echo "EXPOSED=true" >> "$GITHUB_ENV"
       - uses: azure/setup-helm@v4
 
       - name: Lint chart
         run: |
           helm lint "${CHART}" -f "deploy/agents/${ENVIRONMENT}.yaml" \
-            --set image.repository="${IMAGE_REPO}" --set image.tag="${IMAGE_TAG}" ${LLM_ARGS}
+            --set image.repository="${IMAGE_REPO}" --set image.tag="${IMAGE_TAG}" ${LLM_ARGS} ${EXPOSE_FILE}
 
       - name: Deploy with Helm
         run: |
@@ -134,14 +159,30 @@ jobs:
             --set image.repository="${IMAGE_REPO}" \
             --set image.tag="${IMAGE_TAG}" \
             ${LLM_ARGS} \
+            ${EXPOSE_FILE} \
             --atomic --wait --timeout 5m
 
       - name: Summary
         run: |
           kubectl -n "${NAMESPACE}" get deploy,svc,pods -l app.kubernetes.io/name="${AGENT}"
+          URL=""
+          if [ "${EXPOSED}" = "true" ]; then
+            for i in $(seq 1 24); do
+              IP=$(kubectl -n "${NAMESPACE}" get svc "${AGENT}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+              [ -n "${IP}" ] && break
+              sleep 10
+            done
+            [ -n "${IP}" ] && URL="http://${IP}/"
+          fi
           {
             echo "### ${AGENT} -> ${ENVIRONMENT}"
             echo "- image: \`${IMAGE_REPO}:${IMAGE_TAG}\`"
             echo "- brain: ${LLM_DESC}"
-            echo "- reach it: \`kubectl -n ${NAMESPACE} port-forward svc/${AGENT} 8080:80\` then open http://localhost:8080/"
+            if [ -n "${URL}" ]; then
+              echo "- **URL (only reachable from the allowed addresses): ${URL}**  (API docs: ${URL}docs)"
+            elif [ "${EXPOSED}" = "true" ]; then
+              echo "- public address not assigned yet: \`kubectl -n ${NAMESPACE} get svc ${AGENT}\`"
+            else
+              echo "- private: \`kubectl -n ${NAMESPACE} port-forward svc/${AGENT} 8080:80\` then open http://localhost:8080/"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

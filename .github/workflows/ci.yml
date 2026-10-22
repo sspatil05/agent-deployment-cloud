@@ -69,6 +69,8 @@ jobs:
           ARGS="-f deploy/agents/${{ matrix.env }}.yaml --set image.repository=example/agent-starter --set image.tag=ci --set llm.enabled=${{ matrix.llm }}"
           helm lint charts/ai-agent $ARGS
           helm template agent-starter charts/ai-agent $ARGS > /dev/null
+          # the publicly reachable variant (service.type LoadBalancer with allowed ranges)
+          helm template agent-starter charts/ai-agent $ARGS --set service.type=LoadBalancer --set-json 'service.loadBalancerSourceRanges=["203.0.113.7/32"]' | grep -q loadBalancerSourceRanges
 
   terraform:
     runs-on: ubuntu-latest

@@ -18,6 +18,9 @@ service:
   type: ClusterIP
   port: 80
   internal: false # with type LoadBalancer: true = private load balancer reachable only inside the VPC
+  # With type LoadBalancer: only these CIDRs may connect (e.g. ["203.0.113.7/32"]). The pipeline fills this from the
+  # GitHub environment variable AGENT_ALLOWED_CIDRS so addresses never need to be committed.
+  loadBalancerSourceRanges: []
 
 logLevel: INFO
 

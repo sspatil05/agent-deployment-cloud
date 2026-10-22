@@ -132,6 +132,13 @@ kubectl -n agents port-forward svc/agent-starter 8080:80
 # then http://localhost:8080/ (test console), /docs (Swagger), /healthz, /metrics
 ```
 
+**Reaching it from your laptop (optional, locked to your IP).** By default the agent is private. To get a browser URL, set the
+GitHub environment **variable** `AGENT_ALLOWED_CIDRS` to the public IP address(es) allowed to connect, comma-separated, for
+example `203.0.113.7/32`. The next deploy then creates a Google load balancer that accepts connections **only** from those
+addresses, and the run summary prints the URL (`http://<ip>/`, API docs at `/docs`). The list lives in GitHub, not in the code,
+because this repository may be public. Entries must be IPv4 addresses or CIDRs, and `0.0.0.0/0` is refused. Check the address your
+browser really uses at https://ifconfig.me, since company proxies can differ from your laptop's own address. The URL is plain
+HTTP, and anyone on an allowed address can use the agent, so keep the list short. Clear the variable to make the agent private again.
 **Giving it a brain.** The agent supports two providers, chosen by the model name or `AGENT_LLM_PROVIDER`:
 
 | Provider | GitHub environment secret | `AGENT_MODEL` example |

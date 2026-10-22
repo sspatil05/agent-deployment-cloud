@@ -1,6 +1,11 @@
 {{ include "ai-agent.name" . }} {{ .Values.image.tag }} deployed to namespace {{ .Release.Namespace }} ({{ .Values.environment }}).
 LLM brain: {{ if .Values.llm.enabled }}enabled ({{ .Values.llm.provider }}: {{ .Values.llm.model }}){{ else }}disabled (no-op brain){{ end }}
 
+{{- if and (eq .Values.service.type "LoadBalancer") (not .Values.service.internal) }}
+Public address (restricted to the allowed CIDRs; can take a few minutes to appear):
+  kubectl -n {{ .Release.Namespace }} get svc {{ include "ai-agent.name" . }}
+{{- end }}
+
 Try it without exposing it publicly:
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ai-agent.name" . }} 8080:{{ .Values.service.port }}
   curl -s localhost:8080/healthz
