@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 dependencies = [
     # Pulled from the agent-core git repo by tag. [anthropic] adds the LLM brain.
     # For connector extras: "agent-core[anthropic,jira,slack] @ git+...@v0.2.0"
-    "agent-core[anthropic] @ git+https://github.com/Komali612/agent-core@v0.2.0",
+    "agent-core[anthropic] @ git+https://github.com/sspatil05/agent-core@v0.2.0",
 ]
 
 [project.scripts]
