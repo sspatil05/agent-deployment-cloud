@@ -1,5 +1,5 @@
 {{ include "ai-agent.name" . }} {{ .Values.image.tag }} deployed to namespace {{ .Release.Namespace }} ({{ .Values.environment }}).
-LLM brain: {{ if .Values.llm.enabled }}enabled ({{ .Values.llm.model }}){{ else }}disabled (no-op brain){{ end }}
+LLM brain: {{ if .Values.llm.enabled }}enabled ({{ .Values.llm.provider }}: {{ .Values.llm.model }}){{ else }}disabled (no-op brain){{ end }}
 
 Try it without exposing it publicly:
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ai-agent.name" . }} 8080:{{ .Values.service.port }}

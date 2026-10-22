@@ -22,11 +22,14 @@ service:
 logLevel: INFO
 
 # The LLM "brain". When disabled the agent still starts, using the no-op brain (no cost, does nothing useful).
+# The pipeline enables it when the GitHub secret OPENROUTER_API_KEY (or ANTHROPIC_API_KEY) exists.
 llm:
   enabled: false
-  model: claude-sonnet-5-5 # AGENT_MODEL
-  secretName: agent-secrets # Kubernetes Secret created by the pipeline from the GitHub secret ANTHROPIC_API_KEY
-  secretKey: anthropic-key
+  provider: openrouter # openrouter | anthropic (AGENT_LLM_PROVIDER)
+  model: openai/gpt-4o-mini # AGENT_MODEL (a Claude id such as claude-sonnet-5-5 when provider is anthropic)
+  apiKeyEnvName: OPENROUTER_API_KEY # environment variable the agent reads (ANTHROPIC_API_KEY for anthropic)
+  secretName: agent-secrets # Kubernetes Secret created by the pipeline from the GitHub secret
+  secretKey: api-key
 
 resources:
   requests:

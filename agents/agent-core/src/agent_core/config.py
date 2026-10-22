@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # identity / behavior
     name: str = "agent"
     model: str | None = None          # LLM model id, or None for no brain
+    llm_provider: str = "auto"        # anthropic | openrouter | auto (model id with "/" -> openrouter)
     log_level: str = "INFO"
 
     # HTTP service

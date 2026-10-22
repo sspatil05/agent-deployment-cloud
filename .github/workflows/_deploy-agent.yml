@@ -31,7 +31,7 @@ jobs:
       IMAGE_PATH: ${{ vars.IMAGE_PATH }}
       CLUSTER_NAME: ${{ vars.CLUSTER_NAME }}
       CLUSTER_LOCATION: ${{ vars.CLUSTER_LOCATION }}
-      AGENT_MODEL: ${{ vars.AGENT_MODEL }} # optional, overrides the model in charts/ai-agent/values.yaml
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }} # optional: model id (openai/gpt-4o-mini via OpenRouter, or claude-* via Anthropic)
       NAMESPACE: agents
       CHART: charts/ai-agent
     steps:
@@ -43,7 +43,7 @@ jobs:
 
       - name: Tests
         run: |
-          pip install --quiet ./agents/agent-core[anthropic] pytest
+          pip install --quiet "./agents/agent-core[anthropic,openrouter]" pytest
           pip install --quiet --no-deps ./agents/agent-starter
           (cd agents/agent-core && python -m pytest -q)
           (cd agents/agent-starter && python -m pytest -q tests)
@@ -100,18 +100,25 @@ jobs:
 
       - name: Create the API key secret (optional)
         env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-          if [ -n "${ANTHROPIC_API_KEY}" ]; then
-            kubectl -n "${NAMESPACE}" create secret generic agent-secrets \
-              --from-literal=anthropic-key="${ANTHROPIC_API_KEY}" --dry-run=client -o yaml | kubectl apply -f -
-            echo "LLM_ARGS=--set llm.enabled=true${AGENT_MODEL:+ --set llm.model=${AGENT_MODEL}}" >> "$GITHUB_ENV"
+          # OpenRouter takes precedence; the Anthropic key is only used when no OpenRouter key exists.
+          if [ -n "${OPENROUTER_API_KEY}" ]; then
+            PROVIDER=openrouter; KEY_ENV=OPENROUTER_API_KEY; KEY="${OPENROUTER_API_KEY}"; MODEL="${AGENT_MODEL:-openai/gpt-4o-mini}"
+          elif [ -n "${ANTHROPIC_API_KEY}" ]; then
+            PROVIDER=anthropic; KEY_ENV=ANTHROPIC_API_KEY; KEY="${ANTHROPIC_API_KEY}"; MODEL="${AGENT_MODEL:-claude-sonnet-5-5}"
           else
-            echo "::warning::No ANTHROPIC_API_KEY secret on environment '${ENVIRONMENT}': deploying with the no-op brain."
+            echo "::warning::No OPENROUTER_API_KEY or ANTHROPIC_API_KEY secret on environment '${ENVIRONMENT}': deploying with the no-op brain."
             echo "LLM_ARGS=" >> "$GITHUB_ENV"
+            echo "LLM_DESC=no-op (no API key secret)" >> "$GITHUB_ENV"
+            exit 0
           fi
-
+          kubectl -n "${NAMESPACE}" create secret generic agent-secrets \
+            --from-literal=api-key="${KEY}" --dry-run=client -o yaml | kubectl apply -f -
+          echo "LLM_ARGS=--set llm.enabled=true --set llm.provider=${PROVIDER} --set llm.apiKeyEnvName=${KEY_ENV} --set llm.model=${MODEL}" >> "$GITHUB_ENV"
+          echo "LLM_DESC=${PROVIDER}: ${MODEL}" >> "$GITHUB_ENV"
       - uses: azure/setup-helm@v4
 
       - name: Lint chart
@@ -135,6 +142,6 @@ jobs:
           {
             echo "### ${AGENT} -> ${ENVIRONMENT}"
             echo "- image: \`${IMAGE_REPO}:${IMAGE_TAG}\`"
-            echo "- brain: $([ -n "${LLM_ARGS}" ] && echo "Claude enabled" || echo "no-op (no ANTHROPIC_API_KEY)")"
+            echo "- brain: ${LLM_DESC}"
             echo "- reach it: \`kubectl -n ${NAMESPACE} port-forward svc/${AGENT} 8080:80\` then open http://localhost:8080/"
           } >> "$GITHUB_STEP_SUMMARY"

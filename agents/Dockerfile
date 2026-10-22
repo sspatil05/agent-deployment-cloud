@@ -9,7 +9,7 @@ FROM python:3.11-slim AS build
 WORKDIR /src
 COPY agent-core ./agent-core
 COPY agent-starter ./agent-starter
-RUN pip install --no-cache-dir "./agent-core[anthropic]" \
+RUN pip install --no-cache-dir "./agent-core[anthropic,openrouter]" \
  && pip install --no-cache-dir --no-deps ./agent-starter
 
 FROM python:3.11-slim AS runtime

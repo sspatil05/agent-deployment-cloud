@@ -46,7 +46,9 @@ spec:
             {{- if .Values.llm.enabled }}
             - name: AGENT_MODEL
               value: {{ .Values.llm.model | quote }}
-            - name: ANTHROPIC_API_KEY
+            - name: AGENT_LLM_PROVIDER
+              value: {{ .Values.llm.provider | quote }}
+            - name: {{ .Values.llm.apiKeyEnvName }}
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.llm.secretName }}

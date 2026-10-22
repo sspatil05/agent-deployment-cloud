@@ -132,11 +132,21 @@ kubectl -n agents port-forward svc/agent-starter 8080:80
 # then http://localhost:8080/ (test console), /docs (Swagger), /healthz, /metrics
 ```
 
-**Giving it a brain.** Add the GitHub environment **secret** `ANTHROPIC_API_KEY`. The pipeline turns it into the
-Kubernetes secret `agent-secrets` and enables the model (default `claude-sonnet-5-5`; override with the optional environment
-**variable** `AGENT_MODEL`). Without the secret the agent still deploys and runs with the no-op brain, which is a free way to
-confirm the pipeline works. The key lives only in GitHub and in the cluster, never in Terraform or git.
+**Giving it a brain.** The agent supports two providers, chosen by the model name or `AGENT_LLM_PROVIDER`:
 
+| Provider | GitHub environment secret | `AGENT_MODEL` example |
+|---|---|---|
+| OpenRouter (default here) | `OPENROUTER_API_KEY` | `openai/gpt-4o-mini` |
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` |
+
+Add the secret to the GitHub environment (`dev`, `stage`, `prod`) and, optionally, the environment **variable** `AGENT_MODEL`.
+The pipeline stores the key as the Kubernetes secret `agent-secrets`, passes it to the pod under the right variable name, and
+sets the provider and model. If both secrets exist, OpenRouter wins. With neither, the agent deploys with the no-op brain,
+which is a free way to confirm the pipeline works. The run summary shows the active provider and model. Keys live only in
+GitHub and in the cluster, never in Terraform or git, and `.env.example` must only ever hold placeholders.
+
+OpenRouter support is code in `agents/agent-core/src/agent_core/llm/openrouter.py` (tests in `tests/test_openrouter.py`);
+the rest of the agent is unchanged.
 It uses the same GitHub environment secrets and variables as the apps, so no new infrastructure is needed.
 ## Next steps once a cluster exists
 

@@ -1,7 +1,7 @@
 """A keyless provider so a freshly stamped agent runs with no API key.
 
 It never calls tools and returns immediately, so the brain loop exits after one
-step. Real reasoning needs a model (AGENT_MODEL) + ANTHROPIC_API_KEY.
+step. Real reasoning needs a model (AGENT_MODEL) + the matching API key (OPENROUTER_API_KEY or ANTHROPIC_API_KEY).
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ class NoOpProvider:
     def respond(self, system: str, messages: list, tools: list) -> Reply:
         names = ", ".join(t.get("name", "?") for t in tools) or "(none)"
         text = (
-            "[no-op brain] No model configured. Set AGENT_MODEL and ANTHROPIC_API_KEY "
-            f"to enable reasoning. Available tools: {names}."
+            "[no-op brain] No model configured. Set AGENT_MODEL and an API key "
+            f"(OPENROUTER_API_KEY or ANTHROPIC_API_KEY) to enable reasoning. Available tools: {names}."
         )
         return Reply(content=text, stop_reason="end_turn", text=text)

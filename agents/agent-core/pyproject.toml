@@ -17,6 +17,8 @@ dependencies = [
 [project.optional-dependencies]
 # The optional LLM brain
 anthropic = ["anthropic>=0.40"]
+# OpenRouter (OpenAI-compatible API): lets the agent use any model OpenRouter serves
+openrouter = ["openai>=1.40"]
 # Modular connectors — an agent installs only what it needs
 jira = ["jira>=3.8"]
 github = ["PyGithub>=2"]

@@ -48,7 +48,7 @@ jobs:
           python-version: "3.11"
       - name: Tests
         run: |
-          pip install --quiet ./agents/agent-core[anthropic] pytest
+          pip install --quiet "./agents/agent-core[anthropic,openrouter]" pytest
           pip install --quiet --no-deps ./agents/agent-starter
           (cd agents/agent-core && python -m pytest -q)
           (cd agents/agent-starter && python -m pytest -q tests)
